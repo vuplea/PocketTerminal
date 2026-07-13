@@ -45,7 +45,7 @@ export function normalizeHubUrl(raw: string): string {
   return normalized;
 }
 
-// ws:// carries the hub password (and every keystroke) in cleartext. That is
+// ws:// carries the workstation password (and every keystroke) in cleartext. That is
 // fine on this machine or inside a compose network (single-label hosts like
 // "hub"); anywhere else it hands the one secret to any eavesdropper. A
 // warning rather than a refusal: a LAN deployment may accept the tradeoff
@@ -60,7 +60,7 @@ export function warnIfCleartext(url: string): void {
     return;
   }
   if (host === 'localhost' || host === '127.0.0.1' || host === '::1' || !host.includes('.')) return;
-  console.error(`WARNING: hub link to ${host} uses unencrypted ws:// — the hub password`
+  console.error(`WARNING: hub link to ${host} uses unencrypted ws:// — the workstation password`
     + ' and all terminal traffic are readable in transit; use wss:// (an https hub URL)');
 }
 
@@ -93,7 +93,7 @@ export async function maintainLink(url: string, subprotocol: string, password: s
 function runLink(url: string, subprotocol: string, password: string,
                  handlers: LinkHandlers): Promise<number> {
   return new Promise((resolve) => {
-    // The hub password rides in a subprotocol slot, out of the URL (and
+    // The workstation password rides in a subprotocol slot, out of the URL (and
     // access logs). Base64url-encoded: subprotocol values must be HTTP
     // tokens, and the encoding lifts that charset restriction off the
     // password itself.

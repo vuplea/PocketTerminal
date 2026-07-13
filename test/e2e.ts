@@ -16,7 +16,8 @@ import { BROWSER_PROTOCOL } from '../lib/protocol';
 const REPO = path.resolve(import.meta.dir, '..');
 const PORT = 18000 + (process.pid % 1000);
 const BASE = `http://127.0.0.1:${PORT}`;
-const PASS = 'pt-e2e-not-a-real-secret';
+const PASS = 'pt-e2e-not-a-real-secret'; // web access
+const NODE_PASS = 'pt-e2e-workstation-secret'; // workstation registration
 const NODE = 'e2e';
 const CWD = os.tmpdir();
 const AUTH = 'Basic ' + Buffer.from(`pocketterm:${PASS}`).toString('base64');
@@ -64,7 +65,7 @@ function spawn(label: string, args: string[], env: Record<string, string> = {}):
 function spawnHost(label: string): Bun.Subprocess {
   const spec = Buffer.from(JSON.stringify({ label, cwd: CWD })).toString('base64url');
   return spawn(label, ['pt/main.ts', 'run', '--spec', spec], {
-    POCKETTERM_HUB_URL: BASE, POCKETTERM_PASSWORD: PASS, POCKETTERM_NODE_NAME: NODE,
+    POCKETTERM_HUB_URL: BASE, POCKETTERM_WORKSTATION_PASSWORD: NODE_PASS, POCKETTERM_NODE_NAME: NODE,
   });
 }
 
@@ -119,7 +120,8 @@ async function attachViewer(id: string) {
 // ------------------------------------------------------------------- hub
 dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pt-e2e-'));
 spawn('hub', ['server.ts'], {
-  PORT: String(PORT), HOST: '127.0.0.1', POCKETTERM_PASSWORD: PASS, POCKETTERM_DATA: dataDir,
+  PORT: String(PORT), HOST: '127.0.0.1', POCKETTERM_WEBACCESS_PASSWORD: PASS,
+  POCKETTERM_WORKSTATION_PASSWORD: NODE_PASS, POCKETTERM_DATA: dataDir,
 });
 await until('hub up', 10000, async () => (await fetch(BASE, { headers: { Authorization: AUTH } })).ok);
 console.log('OK hub up');
@@ -164,7 +166,7 @@ console.log('OK shell exit ends the session everywhere');
 
 // --------------------------------------------------------------- launcher
 spawn('launcher', ['pt/main.ts', 'launcher'], {
-  POCKETTERM_HUB_URL: BASE, POCKETTERM_PASSWORD: PASS, POCKETTERM_NODE_NAME: NODE,
+  POCKETTERM_HUB_URL: BASE, POCKETTERM_WORKSTATION_PASSWORD: NODE_PASS, POCKETTERM_NODE_NAME: NODE,
 });
 await until('launcher registered', 10000, async () => {
   const { body } = await api('/api/state');

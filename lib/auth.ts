@@ -49,13 +49,15 @@ interface AttemptRecord {
 
 export class Auth {
   private userDigest: Buffer;
-  private passDigest: Buffer;
+  private webPassDigest: Buffer;
+  private workstationPassDigest: Buffer;
   private attempts = new Map<string, AttemptRecord>(); // channel:bucket -> record
   private tokens = new Map<string, number>(); // token -> expiry (for WebSocket upgrades)
 
-  constructor(password: string) {
+  constructor(webaccessPassword: string, workstationPassword: string) {
     this.userDigest = digest(BASIC_USERNAME);
-    this.passDigest = digest(password);
+    this.webPassDigest = digest(webaccessPassword);
+    this.workstationPassDigest = digest(workstationPassword);
     setInterval(() => this.prune(), 60 * 1000).unref();
   }
 
@@ -79,7 +81,7 @@ export class Auth {
     return { ok: false, status: 401 };
   }
 
-  // The same gate for a bare password (workstation session and launcher
+  // The same gate for the bare workstation password (session and launcher
   // sockets present it, base64url-decoded by the caller, from a
   // Sec-WebSocket-Protocol slot).
   checkPassword(value: Buffer, ip: string): AuthResult {
@@ -87,7 +89,7 @@ export class Auth {
     const locked = this.lockout(key);
     if (locked) return locked;
 
-    if (value.length > 0 && crypto.timingSafeEqual(digest(value), this.passDigest)) {
+    if (value.length > 0 && crypto.timingSafeEqual(digest(value), this.workstationPassDigest)) {
       this.attempts.delete(key);
       return { ok: true };
     }
@@ -117,7 +119,7 @@ export class Auth {
     if (sep < 0) return false;
     // Always compare both parts so timing does not reveal which one failed.
     const userOk = crypto.timingSafeEqual(digest(decoded.slice(0, sep)), this.userDigest);
-    const passOk = crypto.timingSafeEqual(digest(decoded.slice(sep + 1)), this.passDigest);
+    const passOk = crypto.timingSafeEqual(digest(decoded.slice(sep + 1)), this.webPassDigest);
     return userOk && passOk;
   }
 

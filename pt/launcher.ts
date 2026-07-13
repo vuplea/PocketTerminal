@@ -65,14 +65,14 @@ function create(msg: Msg, ctx: HostContext): void {
 
   if (isWindows) {
     // A visible window: the session must be closable (and killable) by
-    // closing it. The host reads the hub password from Credential Manager
-    // itself.
+    // closing it. The host reads the workstation password from Credential
+    // Manager itself.
     openHostWindow(hostArgs(spec));
     console.log(`session ${msg.id} opened in a terminal window`);
     return;
   }
 
-  // No windows here (the workstation container): a headless host. The hub
+  // No windows here (the workstation container): a headless host. The
   // password goes over stdin rather than the environment.
   const child = Bun.spawn({
     cmd: [process.execPath, ...hostArgs(spec)],

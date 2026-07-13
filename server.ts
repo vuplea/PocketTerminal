@@ -21,30 +21,37 @@ const PORT = Number(process.env.PORT) || 8080;
 // container sets it (Dockerfile.hub) and publishes the port loopback-bound
 // instead (docker-compose.yml).
 const HOST = process.env.HOST || '127.0.0.1';
-// The one secret. Browsers present it via Basic auth (username "pocketterm");
-// workstation session and launcher sockets present it too. See lib/auth.ts.
-const PASSWORD = process.env.POCKETTERM_PASSWORD;
+// The two secrets: browsers present the web-access password via Basic auth
+// (username "pocketterm"); workstation session and launcher sockets present
+// the workstation password. See lib/auth.ts.
+const WEBACCESS_PASSWORD = process.env.POCKETTERM_WEBACCESS_PASSWORD;
+const WORKSTATION_PASSWORD = process.env.POCKETTERM_WORKSTATION_PASSWORD;
 const DATA_DIR = process.env.POCKETTERM_DATA || path.join(import.meta.dir, 'data');
 const TRUST_PROXY = ['1', 'true'].includes(process.env.POCKETTERM_TRUST_PROXY ?? '');
 
-if (!PASSWORD) {
-  console.error('Missing required environment variable: POCKETTERM_PASSWORD');
-  process.exit(1);
-}
-// The placeholder is public knowledge (it ships in .env.example); a hub
-// guarded by it is a hub guarded by nothing.
-if (PASSWORD === 'change-me-long-random') {
-  console.error('POCKETTERM_PASSWORD is still the .env.example placeholder — set a real password');
-  process.exit(1);
-}
-// The password gates a shell on every workstation; a short one falls to
-// online guessing despite the lockout.
-if (PASSWORD.length < 16) {
-  console.error('POCKETTERM_PASSWORD is too short — use at least 16 characters, long and random');
-  process.exit(1);
+for (const [name, value] of [
+  ['POCKETTERM_WEBACCESS_PASSWORD', WEBACCESS_PASSWORD],
+  ['POCKETTERM_WORKSTATION_PASSWORD', WORKSTATION_PASSWORD],
+] as const) {
+  if (!value) {
+    console.error(`Missing required environment variable: ${name}`);
+    process.exit(1);
+  }
+  // The placeholder is public knowledge (it ships in .env.example); a hub
+  // guarded by it is a hub guarded by nothing.
+  if (value === 'change-me-long-random') {
+    console.error(`${name} is still the .env.example placeholder — set a real password`);
+    process.exit(1);
+  }
+  // Each password gates a shell on every workstation; a short one falls to
+  // online guessing despite the lockout.
+  if (value.length < 16) {
+    console.error(`${name} is too short — use at least 16 characters, long and random`);
+    process.exit(1);
+  }
 }
 
-const auth = new Auth(PASSWORD);
+const auth = new Auth(WEBACCESS_PASSWORD!, WORKSTATION_PASSWORD!);
 const store = new Store(DATA_DIR);
 const directory = new Directory();
 
@@ -218,7 +225,7 @@ function authFailure(result: { status: 401 | 429; retryAfter?: number }): Respon
       'Content-Type': 'text/plain',
     });
   }
-  return respond(401, 'Authentication required. Sign in as "pocketterm" with the hub password.', {
+  return respond(401, 'Authentication required. Sign in as "pocketterm" with the web-access password.', {
     'WWW-Authenticate': 'Basic realm="PocketTerminal (username: pocketterm)", charset="UTF-8"',
     'Content-Type': 'text/plain',
   });

@@ -15,9 +15,10 @@ services:
     ports:
       - "127.0.0.1:27180:8080"
     environment:
-      # The one secret: gates browser sign-in (username "pocketterm") and
-      # workstation registration alike (see .env.example).
-      POCKETTERM_PASSWORD: ${POCKETTERM_PASSWORD:?set POCKETTERM_PASSWORD in the environment or .env}
+      # The two secrets: browser sign-in (username "pocketterm") and
+      # workstation registration (see .env.example).
+      POCKETTERM_WEBACCESS_PASSWORD: ${POCKETTERM_WEBACCESS_PASSWORD:?set POCKETTERM_WEBACCESS_PASSWORD in the environment or .env}
+      POCKETTERM_WORKSTATION_PASSWORD: ${POCKETTERM_WORKSTATION_PASSWORD:?set POCKETTERM_WORKSTATION_PASSWORD in the environment or .env}
       POCKETTERM_TRUST_PROXY: ${POCKETTERM_TRUST_PROXY:-}
     # The hub brokers sockets and spawns nothing; keep it that way.
     security_opt:
@@ -48,13 +49,13 @@ services:
     container_name: pocketterminal-server
     restart: unless-stopped
     # No `init: true` here on purpose: compose's docker-init would sit at PID 1
-    # holding POCKETTERM_PASSWORD in its environment for the container's life.
-    # The entrypoint execs tini (baked into the image) itself, after moving the
-    # secret off the environment.
+    # holding POCKETTERM_WORKSTATION_PASSWORD in its environment for the
+    # container's life. The entrypoint execs tini (baked into the image)
+    # itself, after moving the secret off the environment.
     depends_on:
       - hub
     environment:
-      POCKETTERM_PASSWORD: ${POCKETTERM_PASSWORD:?set POCKETTERM_PASSWORD in the environment or .env}
+      POCKETTERM_WORKSTATION_PASSWORD: ${POCKETTERM_WORKSTATION_PASSWORD:?set POCKETTERM_WORKSTATION_PASSWORD in the environment or .env}
       POCKETTERM_HUB_URL: ws://hub:8080
       POCKETTERM_NODE_NAME: ${POCKETTERM_NODE_NAME:-server}
       POCKETTERM_SHELL: ${POCKETTERM_SHELL:-}

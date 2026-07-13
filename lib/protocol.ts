@@ -42,7 +42,7 @@ export const BROWSER_PROTOCOL = 'pocketterminal';
 export const SESSION_PROTOCOL = 'pocketterminal-session';
 export const LAUNCHER_PROTOCOL = 'pocketterminal-launcher';
 
-// The fixed Basic-auth username; the hub password is the only real secret.
+// The fixed Basic-auth username; the web-access password is the real secret.
 export const BASIC_USERNAME = 'pocketterm';
 
 // A workstation's name: what `pt` validates POCKETTERM_NODE_NAME against, sends

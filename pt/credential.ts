@@ -1,8 +1,8 @@
 import { CliError } from './config';
 
-// The hub password's home on Windows: a generic credential in the user's
-// Credential Manager, written by `pt set-password` (the installer pipes the
-// password into it) and read back by every session host and the launcher.
+// The workstation password's home on Windows: a generic credential in the
+// user's Credential Manager, written by `pt set-password` (the installer pipes
+// the password into it) and read back by every session host and the launcher.
 // Keeps the secret out of environment variables and the registry; note it
 // stays readable by any process running as this user, this one included.
 

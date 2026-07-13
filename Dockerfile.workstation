@@ -20,8 +20,8 @@ FROM node:22-bookworm
 # Tools available to the terminal sessions this container hosts — plus tini,
 # which the entrypoint execs as PID 1 to reap zombies from exited sessions.
 # (Compose `init: true` would do that too, but its docker-init keeps the
-# container's original environment — POCKETTERM_PASSWORD included — for the
-# container's lifetime.)
+# container's original environment — POCKETTERM_WORKSTATION_PASSWORD included
+# — for the container's lifetime.)
 RUN apt-get update && apt-get install -y --no-install-recommends \
         tini \
         procps \

@@ -67,7 +67,7 @@ The compose deployment runs two containers:
   survive redeploys; running sessions do not.
 
 ```sh
-cp .env.example .env   # set POCKETTERM_PASSWORD
+cp .env.example .env   # set the two passwords
 docker compose up -d --build
 ```
 
@@ -75,7 +75,8 @@ Configuration, via `.env` or the deploy platform's environment:
 
 | Variable                 | Default  | Purpose                                                       |
 | ------------------------ | -------- | ------------------------------------------------------------- |
-| `POCKETTERM_PASSWORD`    | required | The one secret: browsers sign in with it (username is always `pocketterm`), and workstations register with it |
+| `POCKETTERM_WEBACCESS_PASSWORD` | required | Browsers sign in with it (username is always `pocketterm`) |
+| `POCKETTERM_WORKSTATION_PASSWORD` | required | Workstations (including the bundled `server` one) register with it |
 | `POCKETTERM_NODE_NAME`   | `server` | The bundled workstation's name in the UI                       |
 | `POCKETTERM_TRUST_PROXY` | unset    | Set to `1` when a reverse proxy you control is the only way in: the brute-force lockout then keys on the client IP it appends to `X-Forwarded-For` instead of the proxy's address (see Security notes) |
 
@@ -87,7 +88,8 @@ special config.
 ### Running the hub non-containerized
 
 ```sh
-POCKETTERM_PASSWORD='a-long-random-string' bun server.ts
+POCKETTERM_WEBACCESS_PASSWORD='a-long-random-string' \
+POCKETTERM_WORKSTATION_PASSWORD='another-long-random-string' bun server.ts
 ```
 
 The hub reads the variables above, plus:
@@ -127,7 +129,7 @@ From a PowerShell in the repo (no elevation needed):
 .\windows\install.ps1 -HubUrl https://pocketterminal.example.com
 ```
 
-It prompts for the hub password, builds `windows\dist\pt.exe`,
+It prompts for the workstation password, builds `windows\dist\pt.exe`,
 persists the config (settings as user
 environment variables, the password in **Windows Credential Manager**),
 registers a **scheduled task** that runs `pt launcher` at logon, adds
@@ -150,7 +152,7 @@ The installer sets these; set them by hand to run `pt` unmanaged.
 | Variable               | Default            | Purpose                                            |
 | ---------------------- | ------------------ | -------------------------------------------------- |
 | `POCKETTERM_HUB_URL`   | unset              | Hub URL (`https://…` / `wss://…`; a bare host means `https`); unset = `pt` is a local-only terminal |
-| `POCKETTERM_PASSWORD`  | required for hub   | The hub's password; on Windows prefer `pt set-password` (Credential Manager) over the env var |
+| `POCKETTERM_WORKSTATION_PASSWORD` | required for hub | The hub's workstation password; on Windows prefer `pt set-password` (Credential Manager) over the env var |
 | `POCKETTERM_NODE_NAME` | sanitized hostname | This workstation's name in the UI                  |
 | `POCKETTERM_SHELL`     | platform default   | Shell each session hosts (default `powershell.exe` on Windows, `$SHELL`/`bash` elsewhere) |
 
@@ -159,7 +161,7 @@ The installer sets these; set them by hand to run `pt` unmanaged.
 ```
 pt [label] [--cwd DIR] [-- COMMAND ...]       host a session in this terminal
 pt launcher                                   the logon-task resident (sessions from the hub)
-pt set-password                               store the hub password in Credential Manager
+pt set-password                               store the workstation password in Credential Manager
 ```
 
 Everything after `--` is the command to run, taken verbatim — so
@@ -180,12 +182,14 @@ Two files (`pt.0.log`, `pt.1.log`) rotate at 200k lines each.
 
 ## Security notes
 
-`POCKETTERM_PASSWORD` is the single secret: it signs browsers in (Basic auth,
-username fixed to `pocketterm`) and registers workstation sessions and
-launchers, and anyone holding it gets a shell on every workstation — make it
-long and random. The hub itself speaks plain HTTP, and Basic auth resends the
-password with every request, which is why TLS termination in front is
-mandatory, especially if hosting over the Internet.
+There are two secrets: `POCKETTERM_WEBACCESS_PASSWORD` signs browsers in
+(Basic auth, username fixed to `pocketterm`) and grants a shell on every
+workstation; `POCKETTERM_WORKSTATION_PASSWORD` registers workstation sessions
+and launchers, and holding it lets an attacker impersonate a workstation —
+make both long, random, and different. The hub itself speaks plain HTTP, and
+Basic auth resends the web-access password with every request, which is why
+TLS termination in front is mandatory, especially if hosting over the
+Internet.
 The hub listens on loopback by default: open it with `HOST=0.0.0.0`, paired with
 a TLS reverse proxy.
 

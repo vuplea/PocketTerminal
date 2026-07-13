@@ -12,9 +12,9 @@ export const isWindows = process.platform === 'win32';
 
 export const env = {
   get hubUrl(): string { return process.env.POCKETTERM_HUB_URL ?? ''; },
-  get password(): string { return process.env.POCKETTERM_PASSWORD ?? ''; },
-  // The container (and the launcher, spawning headless hosts) hands the hub
-  // password over stdin instead of the environment.
+  get password(): string { return process.env.POCKETTERM_WORKSTATION_PASSWORD ?? ''; },
+  // The container (and the launcher, spawning headless hosts) hands the
+  // workstation password over stdin instead of the environment.
   get passwordFromStdin(): boolean {
     return ['1', 'true'].includes(process.env.POCKETTERM_PASSWORD_STDIN ?? '');
   },

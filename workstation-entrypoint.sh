@@ -1,17 +1,18 @@
 #!/bin/sh
 set -e
 
-# The hub secret arrives as POCKETTERM_PASSWORD in PID 1's environment, which
-# /proc/1/environ keeps readable to same-uid processes even after `unset`. So
-# the entrypoint runs in two stages: stage 1 (shell builtins only) moves the
-# password onto stdin and re-execs itself, rebuilding PID 1's environment
-# without it; stage 2 holds it in an unexported shell variable and hands it to
-# the launcher over stdin. Everything exec'd while the password is in reach
-# uses an absolute path: $HOME/.local/bin leads PATH and is writable, so a bare
-# name could resolve to a binary planted on a previous run.
+# The workstation password arrives as POCKETTERM_WORKSTATION_PASSWORD in PID
+# 1's environment, which /proc/1/environ keeps readable to same-uid processes
+# even after `unset`. So the entrypoint runs in two stages: stage 1 (shell
+# builtins only) moves the password onto stdin and re-execs itself, rebuilding
+# PID 1's environment without it; stage 2 holds it in an unexported shell
+# variable and hands it to the launcher over stdin. Everything exec'd while
+# the password is in reach uses an absolute path: $HOME/.local/bin leads PATH
+# and is writable, so a bare name could resolve to a binary planted on a
+# previous run.
 if [ -z "${POCKETTERM_ENTRYPOINT_STAGE2:-}" ]; then
-    PASSWORD="${POCKETTERM_PASSWORD:-}"
-    unset POCKETTERM_PASSWORD
+    PASSWORD="${POCKETTERM_WORKSTATION_PASSWORD:-}"
+    unset POCKETTERM_WORKSTATION_PASSWORD
     export POCKETTERM_ENTRYPOINT_STAGE2=1
     exec /usr/local/bin/workstation-entrypoint.sh <<STAGE2_PASSWORD
 $PASSWORD

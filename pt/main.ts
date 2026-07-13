@@ -14,7 +14,7 @@ import { setPassword } from './password';
 //   pt launcher            run the workstation launcher (a logon task on
 //                          Windows, the container entrypoint) so sessions can
 //                          be started from the hub
-//   pt set-password        store the hub password in Credential Manager (Windows)
+//   pt set-password        store the workstation password in Credential Manager (Windows)
 //
 // (internal)  pt run --spec <b64url-json>      host a session from a launcher spec
 //
@@ -25,16 +25,16 @@ const USAGE = 'pt [label] [--cwd DIR] [-- CMD ARGS...] | pt launcher | pt set-pa
 
 const args = process.argv.slice(2);
 
-// The hub secret is kept out of this process's environment: same-user
-// processes can read /proc/<pid>/environ, which deleting the variable does not
-// clear. The launcher hands it to headless hosts over stdin (see
-// workstation-entrypoint.sh); on Windows it lives in Credential Manager
+// The workstation password is kept out of this process's environment:
+// same-user processes can read /proc/<pid>/environ, which deleting the
+// variable does not clear. The launcher hands it to headless hosts over stdin
+// (see workstation-entrypoint.sh); on Windows it lives in Credential Manager
 // (`pt set-password`, written by the installer). The delete below still clears
-// a POCKETTERM_PASSWORD set directly in the environment, so a session's shell
-// doesn't inherit it.
+// a POCKETTERM_WORKSTATION_PASSWORD set directly in the environment, so a
+// session's shell doesn't inherit it.
 async function resolvePassword(): Promise<string> {
   let password = env.password;
-  delete process.env.POCKETTERM_PASSWORD;
+  delete process.env.POCKETTERM_WORKSTATION_PASSWORD;
   if (password.length === 0 && env.passwordFromStdin) {
     password = await readSecretFromStdin();
     // stdin here carries the secret (a shell heredoc's temp file, or the
@@ -68,8 +68,10 @@ async function workstationContext(spec: HostSpec = {}): Promise<HostContext> {
 // just unlinked.
 function requirePassword(ctx: HostContext): HostContext {
   if (ctx.password.length > 0) return ctx;
-  throw new CliError('POCKETTERM_HUB_URL is set but no hub password was found'
-    + (isWindows ? ' (run `pt set-password`, or set POCKETTERM_PASSWORD)' : ' (set POCKETTERM_PASSWORD)'));
+  throw new CliError('POCKETTERM_HUB_URL is set but no workstation password was found'
+    + (isWindows
+      ? ' (run `pt set-password`, or set POCKETTERM_WORKSTATION_PASSWORD)'
+      : ' (set POCKETTERM_WORKSTATION_PASSWORD)'));
 }
 
 async function hostSession(spec: HostSpec): Promise<never> {

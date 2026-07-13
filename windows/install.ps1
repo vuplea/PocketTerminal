@@ -17,7 +17,7 @@
 
 .EXAMPLE
   .\install.ps1 -HubUrl https://pocketterminal.example.com -NodeName laptop
-  # prompts for the hub password (hidden); -Password '...' skips the prompt
+  # prompts for the workstation password (hidden); -Password '...' skips the prompt
   # for scripted installs, at the cost of the password landing in shell
   # history and the process command line
 #>
@@ -91,7 +91,7 @@ Write-Host "`nSetting user environment variables..."
 # mistyped password fails right here instead of leaving a launcher that
 # silently redials forever. The user env var persisted above is not part of
 # this process's environment yet, so hand the URL over explicitly.
-Write-Host "Storing the hub password in Credential Manager..."
+Write-Host "Storing the workstation password in Credential Manager..."
 $env:POCKETTERM_HUB_URL = $HubUrl
 if ($Password) {
   # The pipe must carry UTF-8: Windows PowerShell's default pipeline encoding
