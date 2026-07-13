@@ -169,6 +169,15 @@ Everything after `--` is the command to run, taken verbatim — so
 runs on a pty owned by that process, the hub sees it immediately, and keys go
 straight to the shell.
 
+### Workstation logs
+
+The launcher and every session host append to a shared log under
+`~/.pocketterm/logs` (`%USERPROFILE%\.pocketterm\logs` on Windows) — process
+start/exit, hub link ups and downs, session creates — each line headed with
+the writer's identity. This is the place to look when the logon-task launcher
+misbehaves: it runs in an invisible console, so the file is its only record.
+Two files (`pt.0.log`, `pt.1.log`) rotate at 200k lines each.
+
 ## Security notes
 
 `POCKETTERM_PASSWORD` is the single secret: it signs browsers in (Basic auth,

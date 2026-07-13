@@ -76,11 +76,12 @@ export interface LinkHandlers {
 // loss with exponential backoff. Never resolves.
 export async function maintainLink(url: string, subprotocol: string, password: string,
                                    handlers: LinkHandlers): Promise<never> {
+  console.log(`maintaining hub link to ${url}`);
   let delay = RECONNECT_MIN_MS;
   while (true) {
     const uptime = await runLink(url, subprotocol, password, handlers);
     if (uptime >= STABLE_LINK_MS) delay = RECONNECT_MIN_MS;
-    console.log(`pt: hub link down; reconnecting in ${Math.round(delay / 1000)}s`);
+    console.log(`hub link down; reconnecting in ${Math.round(delay / 1000)}s`);
     await Bun.sleep(delay);
     delay = Math.min(delay * 2, RECONNECT_MAX_MS);
   }
@@ -104,7 +105,7 @@ function runLink(url: string, subprotocol: string, password: string,
     try {
       ws = new WebSocket(url, [subprotocol, Buffer.from(password, 'utf8').toString('base64url')]);
     } catch (err) {
-      console.log(`pt: cannot dial hub: ${(err as Error).message}`);
+      console.log(`cannot dial hub: ${(err as Error).message}`);
       return resolve(0);
     }
 
@@ -120,7 +121,7 @@ function runLink(url: string, subprotocol: string, password: string,
     const post: Post = (msg) => {
       if (ws.readyState !== WebSocket.OPEN) return;
       if (ws.bufferedAmount > MAX_BUFFERED_BYTES) {
-        console.log('pt: hub link send queue overflowed; dropping it to resync');
+        console.log('hub link send queue overflowed; dropping it to resync');
         ws.terminate();
         return;
       }
@@ -132,7 +133,7 @@ function runLink(url: string, subprotocol: string, password: string,
     // on it — many minutes, or never on an idle socket.
     const watchdog = setInterval(() => {
       if (Date.now() - lastTraffic > SILENCE_TIMEOUT_MS) {
-        console.log('pt: hub link silent too long; dropping it to redial');
+        console.log('hub link silent too long; dropping it to redial');
         ws.terminate(); // close() would stall in CLOSING on the same dead link
       }
     }, 30 * 1000);
@@ -141,6 +142,7 @@ function runLink(url: string, subprotocol: string, password: string,
     ws.onopen = () => {
       openedAt = Date.now();
       lastTraffic = openedAt;
+      console.log('hub link established');
       handlers.onOpen(post);
     };
 
@@ -151,11 +153,14 @@ function runLink(url: string, subprotocol: string, password: string,
     };
 
     ws.onerror = (event: Event & { message?: string }) => {
-      if (event.message) console.log(`pt: hub link error: ${event.message}`);
+      if (event.message) console.log(`hub link error: ${event.message}`);
     };
 
-    ws.onclose = () => {
+    ws.onclose = (event) => {
       clearInterval(watchdog);
+      const detail = `code ${event.code}` + (event.reason ? ` ${JSON.stringify(event.reason)}` : '');
+      if (openedAt === 0) console.log(`hub link dial failed (${detail})`);
+      else console.log(`hub link closed (${detail}, up ${Math.round((Date.now() - openedAt) / 1000)}s)`);
       handlers.onClose?.();
       resolve(openedAt === 0 ? 0 : Date.now() - openedAt);
     };

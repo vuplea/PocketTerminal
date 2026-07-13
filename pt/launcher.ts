@@ -24,17 +24,20 @@ function hostArgs(spec: string): string[] {
 }
 
 export async function runLauncher(ctx: HostContext): Promise<never> {
-  console.log(`launcher: workstation "${ctx.node}" ready`);
+  console.log(`workstation "${ctx.node}" ready`);
   const url = `${ctx.hubUrl}/launcher?name=${encodeURIComponent(ctx.node)}`;
   return maintainLink(url, LAUNCHER_PROTOCOL, ctx.password, {
     onOpen() {
-      console.log(`launcher: linked to hub as "${ctx.node}"`);
+      console.log(`linked to hub as "${ctx.node}"`);
     },
     onMessage(msg, post) {
       if (msg.t !== 'create' || typeof msg.id !== 'string') return;
+      console.log(`create ${msg.id}: label ${JSON.stringify(msg.label ?? '')}, cwd ${JSON.stringify(msg.cwd ?? '')}`
+        + (msg.command ? `, command ${JSON.stringify(msg.command)}` : ''));
       try {
         create(msg, ctx);
       } catch (err) {
+        console.log(`create ${msg.id} failed: ${(err as Error).message}`);
         post({ t: 'created', id: msg.id, error: (err as Error).message });
       }
     },
@@ -65,6 +68,7 @@ function create(msg: Msg, ctx: HostContext): void {
     // closing it. The host reads the hub password from Credential Manager
     // itself.
     openHostWindow(hostArgs(spec));
+    console.log(`session ${msg.id} opened in a terminal window`);
     return;
   }
 
@@ -77,12 +81,16 @@ function create(msg: Msg, ctx: HostContext): void {
     stdout: 'inherit',
     stderr: 'inherit',
   });
+  console.log(`session ${msg.id} host spawned (pid ${child.pid})`);
   // The pipe settles asynchronously: a host that dies before reading its
   // stdin rejects these after create() has returned, where an unguarded
   // rejection would take down the launcher itself.
   (async () => {
     await child.stdin.write(ctx.password + '\n');
     await child.stdin.end();
-  })().catch(() => {}); // the host is dead; the create surfaces as a timeout
+  })().catch(() => {
+    // The host is dead; the create surfaces to the phone as a timeout.
+    console.log(`session ${msg.id} host (pid ${child.pid}) died before reading its password`);
+  });
   child.unref();
 }

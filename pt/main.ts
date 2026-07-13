@@ -5,6 +5,7 @@ import { readCredential } from './credential';
 import { runHost, type HostContext, type HostSpec } from './host';
 import { runLauncher } from './launcher';
 import { normalizeHubUrl, warnIfCleartext } from './link';
+import { initLog } from './log';
 import { setPassword } from './password';
 
 //   pt [label] [--cwd DIR] [-- CMD ARGS...]    host a session in this terminal
@@ -112,15 +113,20 @@ function parseSpec(rest: string[]): HostSpec {
   }
 }
 
+// The launcher and session hosts log to a file as well as the console (see
+// pt/log.ts) — initialized before anything can fail, so a launcher dying at
+// logon inside its invisible conhost still leaves a trace.
 try {
   switch (args[0]) {
     case 'launcher': {
+      initLog('launcher');
       const ctx = await workstationContext();
       if (!ctx.hubUrl) throw new CliError('POCKETTERM_HUB_URL is not set — the launcher exists only to serve a hub');
       await runLauncher(requirePassword(ctx));
       break;
     }
     case 'run':
+      initLog('session');
       await hostSession(parseSpec(args.slice(1)));
       break;
     case 'set-password':
@@ -138,6 +144,7 @@ try {
         throw new CliError('pt hosts a session in the terminal it runs in, and no terminal is attached'
           + ` — usage: ${USAGE}`);
       }
+      initLog('session');
       await hostSession(parseHostArgs(args));
       break;
   }

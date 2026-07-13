@@ -3,6 +3,7 @@ import path from 'node:path';
 import { SESSION_PROTOCOL } from '../lib/protocol';
 import { resolveExistingDir } from './config';
 import { maintainLink, type Post } from './link';
+import { muteConsole, setLogTag } from './log';
 import { KILL_GRACE_MS, Session } from './session';
 
 // `pt` — one session, one process. Owns the pty, renders it natively in the
@@ -40,14 +41,19 @@ export async function runHost(spec: HostSpec, ctx: HostContext): Promise<never> 
   const windowed = process.stdin.isTTY === true && process.stdout.isTTY === true;
   if (windowed) {
     // From here on the terminal belongs to the pty; link chatter (reconnect
-    // notices and the like) would scribble over the live screen. What must
-    // reach the user is written straight to stdout as terminal output.
-    console.log = () => {};
-    console.error = () => {};
+    // notices and the like) would scribble over the live screen, so console
+    // output goes only to the log file. What must reach the user is written
+    // straight to stdout as terminal output.
+    muteConsole();
   }
 
+  const id = spec.id || crypto.randomUUID();
+  setLogTag(`session ${id.slice(0, 8)}`);
+  console.log(`starting: id ${id}, label "${label}", cwd ${cwd}`
+    + (command ? `, command "${command}"` : '') + (windowed ? ', windowed' : ', headless'));
+
   const session = new Session({
-    id: spec.id || crypto.randomUUID(),
+    id,
     label,
     cwd,
     command,
@@ -62,15 +68,20 @@ export async function runHost(spec: HostSpec, ctx: HostContext): Promise<never> 
   // to get the exit banner rather than an abrupt socket drop.
   let resolveExited: () => void = () => {};
   const exited = new Promise<void>((resolve) => { resolveExited = resolve; });
-  session.subscribe((msg) => { if (msg.t === 'x') resolveExited(); });
+  session.subscribe((msg) => {
+    if (msg.t !== 'x') return;
+    console.log(`shell exited (code ${msg.code})`);
+    resolveExited();
+  });
 
   // Every exit path funnels here: kill the shell's whole tree first, so
   // closing the window never leaves invisible processes on a pty nobody can
   // reach again.
   let shuttingDown = false;
-  async function shutdown(): Promise<void> {
+  async function shutdown(reason: string): Promise<void> {
     if (shuttingDown) return;
     shuttingDown = true;
+    console.log(`shutting down (${reason})`);
     const sweeping = process.platform === 'linux' && session.alive;
     session.close();
     if (sweeping) {
@@ -89,9 +100,9 @@ export async function runHost(spec: HostSpec, ctx: HostContext): Promise<never> 
   // The window closing delivers SIGHUP (on Windows, the console's
   // CTRL_CLOSE_EVENT arrives as SIGHUP with a few seconds' grace) — the
   // moment the requirement "window close = session dead" is enforced.
-  process.on('SIGHUP', () => void shutdown());
-  process.on('SIGTERM', () => void shutdown());
-  if (!windowed) process.on('SIGINT', () => void shutdown());
+  process.on('SIGHUP', () => void shutdown('SIGHUP'));
+  process.on('SIGTERM', () => void shutdown('SIGTERM'));
+  if (!windowed) process.on('SIGINT', () => void shutdown('SIGINT'));
 
   // The shell exiting ends the session, exactly like any terminal: the host
   // exits with the shell's code (so the window closes, or Windows Terminal
@@ -141,7 +152,7 @@ export async function runHost(spec: HostSpec, ctx: HostContext): Promise<never> 
       const text = decoder.decode(chunk, { stream: true });
       if (text.length > 0) session.write(text);
     });
-    process.stdin.on('end', () => void shutdown()); // terminal gone without a signal
+    process.stdin.on('end', () => void shutdown('terminal closed')); // terminal gone without a signal
 
     // The console gives no reliable resize signal everywhere; poll and
     // follow the window. Compared against the window's own last size, not
@@ -189,6 +200,7 @@ export async function runHost(spec: HostSpec, ctx: HostContext): Promise<never> 
       switch (msg.t) {
         case 'watch':
           watchCount += 1;
+          console.log(`viewer attached (${watchCount} watching)`);
           session.replay((data, alive, exitCode) => {
             p({ t: 's', client: msg.client, d: data });
             if (!alive) p({ t: 'x', client: msg.client, code: exitCode });
@@ -196,6 +208,7 @@ export async function runHost(spec: HostSpec, ctx: HostContext): Promise<never> 
           break;
         case 'unwatch':
           watchCount = Math.max(0, watchCount - 1);
+          console.log(`viewer detached (${watchCount} watching)`);
           break;
         case 'i':
           if (typeof msg.d === 'string') session.write(msg.d);
@@ -207,7 +220,7 @@ export async function runHost(spec: HostSpec, ctx: HostContext): Promise<never> 
           }
           break;
         case 'kill':
-          void shutdown();
+          void shutdown('hub kill');
           break;
       }
     },
