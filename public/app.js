@@ -383,7 +383,7 @@ function installTouchLayer() {
   // speed stands in for it when combing through scrollback. App ticks stay
   // closer to the finger's pace — apps respond to the event rate, and a
   // rate much above the finger reads as acceleration, not speed.
-  const DRAG_SPEED = 2.6; // viewport px scrolled per px of finger travel
+  const DRAG_SPEED = 2; // viewport px scrolled per px of finger travel
   const DRAG_ROWS_PER_TICK = 1.8; // finger travel, in row-heights, per wheel tick sent to an app
   const wheel = (deltaY, deltaMode, touch) => layer.dispatchEvent(new WheelEvent('wheel', {
     bubbles: true,
