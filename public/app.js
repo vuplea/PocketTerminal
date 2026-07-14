@@ -662,6 +662,8 @@ const KEY_CATALOG = [
   { key: 'pgup', label: 'PgUp', repeat: true, run: () => sendKey('PgUp', '\x1b[5~') },
   { key: 'pgdn', label: 'PgDn', repeat: true, run: () => sendKey('PgDn', '\x1b[6~') },
   { key: 'ins', label: 'Ins', run: () => sendKey('Ins', '\x1b[2~') },
+  { key: 'home', label: 'Home', run: () => sendKey('Home', '\x1b[H') },
+  { key: 'end', label: 'End', run: () => sendKey('End', '\x1b[F') },
   { key: 'left', label: '←', repeat: true, run: () => sendKey('←', '\x1b[D') },
   { key: 'updown', label: '↑↓' },
   { key: 'up', label: '↑', repeat: true, run: () => sendKey('↑', '\x1b[A') },
