@@ -5,7 +5,8 @@
   pt.exe, persist its configuration, register the launcher to run at logon,
   and wire up Windows Terminal + the `pt` command. With -InstallHub, also
   build hub.exe and register the hub itself as a background logon task, so
-  this machine serves the UI and brokers browsers to workstations.
+  this machine serves the UI and brokers browsers to workstations. With
+  -Uninstall, remove everything a previous run installed on this machine.
 
 .DESCRIPTION
   After this runs, `pt` in any terminal hosts a session that is also
@@ -31,6 +32,13 @@
   # task, and points this workstation at http://127.0.0.1:8080. The hub
   # listens on loopback; front it with TLS (e.g. tailscale serve) to reach
   # it from other machines.
+
+.EXAMPLE
+  .\install.ps1 -Uninstall
+  # removes both scheduled tasks, the running processes, the stored
+  # credentials, the user environment variables, the PATH entry, and the
+  # Windows Terminal profile. The built exes and the hub-data directory (saved
+  # profiles and quick commands) are left in place.
 #>
 param(
   [string]$HubUrl,
@@ -38,50 +46,24 @@ param(
   [string]$NodeName = ($env:COMPUTERNAME.ToLower() -replace '[^a-z0-9_.-]', '-'),
   [switch]$InstallHub,
   [ValidateRange(1, 65535)][int]$HubPort = 8080,
-  [string]$WebAccessPassword
+  [string]$WebAccessPassword,
+  [switch]$Uninstall
 )
 
 $ErrorActionPreference = 'Stop'
-# Mirrors the node-name rule pt itself enforces (pt/config.ts) — a conscious
-# one-line duplication, since PowerShell cannot import it: failing here beats
-# a launcher that dies at logon with the error visible only by hand-running it.
-if ($NodeName -notmatch '^[A-Za-z0-9_.-]{1,64}$') {
-  throw "Invalid -NodeName '$NodeName' (allowed: letters, digits, _ . - ; max 64 chars)"
-}
-if (-not $HubUrl) {
-  if (-not $InstallHub) { throw '-HubUrl is required (or pass -InstallHub to host the hub on this machine)' }
-  $HubUrl = "http://127.0.0.1:$HubPort"
-}
-if ($WebAccessPassword -and -not $InstallHub) {
-  throw '-WebAccessPassword configures the hub; it needs -InstallHub'
-}
+
 $repo = (Resolve-Path "$PSScriptRoot\..").Path
 $dist = "$PSScriptRoot\dist"
 $launcherTask = 'PocketTerminalLauncher'
 $hubTask = 'PocketTerminalHub'
-$null = (Get-Command bun -ErrorAction Stop).Source
-# Bun.spawn's `terminal` option (the pty every session runs in) needs 1.3.14.
-# Prerelease suffixes (1.3.16-canary.…) are not [version]-castable; strip them.
-$bunVersion = [version]((bun --version) -replace '[-+].*$', '')
-if ($bunVersion -lt [version]'1.3.14') {
-  throw "Bun $bunVersion is too old; pt needs >= 1.3.14 (bun upgrade)"
-}
-
-Write-Host "Repo:      $repo"
-Write-Host "Node name: $NodeName"
-Write-Host "Hub:       $HubUrl$(if ($InstallHub) { ' (installed here)' })"
-
-# The environment outranks Credential Manager by design (containers, dev
-# runs), so a password variable persisted user- or machine-wide would make
-# the hub and pt silently ignore what this install stores.
-$passwordVars = @('POCKETTERM_WORKSTATION_PASSWORD') + $(if ($InstallHub) { @('POCKETTERM_WEBACCESS_PASSWORD') } else { @() })
-foreach ($name in $passwordVars) {
-  foreach ($scope in 'User', 'Machine') {
-    if ([Environment]::GetEnvironmentVariable($name, $scope)) {
-      Write-Warning "$name is persisted ($scope scope) and overrides the password this install stores in Credential Manager — remove the variable."
-    }
-  }
-}
+$fragDir = "$env:LOCALAPPDATA\Microsoft\Windows Terminal\Fragments\PocketTerminal"
+# Credential Manager targets and user environment variables the install writes,
+# mirrored from pt/config.ts (CREDENTIAL_TARGET) and lib/settings.ts since
+# PowerShell cannot import them — kept beside the tasks and paths so -Uninstall
+# removes exactly what was created, and nothing else.
+$workstationCredential = 'PocketTerminal'
+$hubCredentials = @('PocketTerminalHub/webaccess', 'PocketTerminalHub/workstation')
+$userEnvVars = @('POCKETTERM_HUB_URL', 'POCKETTERM_NODE_NAME')
 
 # --- Helpers -------------------------------------------------------------------
 
@@ -95,6 +77,21 @@ function New-StagedExecutable([string]$EntryPoint, [string]$Name) {
   }
 }
 
+# Stop every running build of $Name — the launcher, its session hosts, or the
+# hub. Match our own build by Bun's PE company field ("Oven"), not the install
+# path, so a copy left running from another clone is caught too. Best effort —
+# this would also stop an unrelated Bun exe that happened to be named
+# $Name.exe, a trade accepted to reliably retire our own stragglers. Shared by
+# the staged-build swap and by -Uninstall.
+function Stop-PocketTerminalProcess([string]$Name, [string]$StopNote) {
+  $running = @(Get-Process $Name -ErrorAction SilentlyContinue | Where-Object { $_.Company -eq 'Oven' })
+  if ($running) {
+    Write-Host "Stopping running $Name processes$StopNote..."
+    $running | Stop-Process -Force
+    $running | Wait-Process -Timeout 10 -ErrorAction SilentlyContinue
+  }
+}
+
 # Swap a staged build in. Whatever runs the old binary stops only now, once a
 # good one exists — it must stop then, since Windows locks a running image
 # against overwrite. Stopping the scheduled task is not enough: it terminates
@@ -102,15 +99,7 @@ function New-StagedExecutable([string]$EntryPoint, [string]$Name) {
 # by hand has no task at all.
 function Install-StagedExecutable([string]$Name, [string]$TaskName, [string]$StopNote) {
   Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
-  # Match our own build by Bun's PE company field ("Oven").
-  # Best effort — this would also stop an unrelated Bun exe that happened to be
-  # named $Name.exe, a trade accepted to reliably retire our own stragglers.
-  $running = @(Get-Process $Name -ErrorAction SilentlyContinue | Where-Object { $_.Company -eq 'Oven' })
-  if ($running) {
-    Write-Host "Stopping running $Name processes$StopNote..."
-    $running | Stop-Process -Force
-    $running | Wait-Process -Timeout 10 -ErrorAction SilentlyContinue
-  }
+  Stop-PocketTerminalProcess $Name $StopNote
   # Swap the new binary in via rename-aside: Move-Item -Force does not reliably
   # replace an existing file, and a straggler process would hold the exe locked
   # against deletion anyway — but Windows always allows renaming a running
@@ -158,6 +147,123 @@ function Invoke-Utf8Pipe([string[]]$Lines, [string]$Exe, [string[]]$ExeArgs) {
   $prevEncoding = $OutputEncoding
   $OutputEncoding = [System.Text.UTF8Encoding]::new($false)
   try { $Lines | & $Exe @ExeArgs } finally { $OutputEncoding = $prevEncoding }
+}
+
+# Add or remove $dist on the user PATH. Split on ';' and compare whole entries:
+# -like would treat $dist as a wildcard, and concatenating onto an empty PATH
+# would prepend a stray separator. Read and write through the registry
+# directly: [Environment]::GetEnvironmentVariable expands %VAR% entries on read
+# and SetEnvironmentVariable writes plain REG_SZ, so a round-trip would freeze
+# every REG_EXPAND_SZ entry at its current expansion. A raw registry write also
+# skips the WM_SETTINGCHANGE broadcast SetEnvironmentVariable would send, so
+# send it by hand — without it, shells opened before the next logon never see
+# the change.
+function Edit-UserPath([ValidateSet('Add', 'Remove')][string]$Action) {
+  $envKey = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Environment', $true)
+  try {
+    $userPath = [string]$envKey.GetValue('Path', '', [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+    $entries = @($userPath -split ';' | Where-Object { $_ -ne '' })
+    $present = $entries -contains $dist
+    if ($Action -eq 'Add' -and -not $present) { $updated = @($entries) + $dist }
+    elseif ($Action -eq 'Remove' -and $present) { $updated = @($entries | Where-Object { $_ -ne $dist }) }
+    else { return }
+    $kind = [Microsoft.Win32.RegistryValueKind]::ExpandString
+    if ($envKey.GetValueNames() -contains 'Path') { $kind = $envKey.GetValueKind('Path') }
+    $envKey.SetValue('Path', (@($updated) -join ';'), $kind)
+    if (-not ([System.Management.Automation.PSTypeName]'Win32.Env').Type) {
+      Add-Type -Namespace Win32 -Name Env -MemberDefinition '[DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)] public static extern IntPtr SendMessageTimeoutW(IntPtr hWnd, uint Msg, UIntPtr wParam, string lParam, uint fuFlags, uint uTimeout, out UIntPtr lpdwResult);'
+    }
+    [UIntPtr]$broadcastResult = [UIntPtr]::Zero
+    [void][Win32.Env]::SendMessageTimeoutW([IntPtr]0xffff, 0x1A, [UIntPtr]::Zero, 'Environment', 2, 5000, [ref]$broadcastResult)
+    if ($Action -eq 'Add') { Write-Host "Added $dist to user PATH (restart shells to pick up `pt`)." }
+    else { Write-Host "Removed $dist from user PATH." }
+  } finally {
+    $envKey.Close()
+  }
+}
+
+# Reverse the install: stop the scheduled tasks and running processes, then
+# remove the credentials, user environment variables, PATH entry, and Windows
+# Terminal profile it created. Idempotent — anything already gone is skipped.
+# The built exes under dist\ and the hub-data directory (saved profiles and
+# quick commands) are deliberately left in place.
+function Invoke-Uninstall {
+  Write-Host "Uninstalling PocketTerminal..."
+  # Tasks before processes, so neither the launcher nor the hub is restarted at
+  # logon or by a task's restart-on-failure while we are tearing it down.
+  foreach ($task in $hubTask, $launcherTask) {
+    if (Get-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue) {
+      Stop-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue
+      Unregister-ScheduledTask -TaskName $task -Confirm:$false
+      Write-Host "Removed scheduled task '$task'."
+    }
+  }
+  Stop-PocketTerminalProcess 'hub' ''
+  Stop-PocketTerminalProcess 'pt' ' (open sessions end with them)'
+  # cmdkey deletes the Credential Manager entries set-password wrote:
+  # lib/credential.ts only reads and writes generic credentials, so there is no
+  # exe path to reuse, and this must work without any build output. cmdkey
+  # exits non-zero when the target is absent — treat that as already-gone.
+  foreach ($target in @($workstationCredential) + $hubCredentials) {
+    try { cmdkey "/delete:$target" 2>&1 | Out-Null } catch { }
+    if ($LASTEXITCODE -eq 0) { Write-Host "Removed credential '$target'." }
+  }
+  foreach ($name in $userEnvVars) {
+    if ($null -ne [Environment]::GetEnvironmentVariable($name, 'User')) {
+      [Environment]::SetEnvironmentVariable($name, $null, 'User')
+      Write-Host "Removed user environment variable $name."
+    }
+  }
+  Edit-UserPath 'Remove'
+  if (Test-Path $fragDir) {
+    Remove-Item $fragDir -Recurse -Force
+    Write-Host "Removed the Windows Terminal 'PocketTerminal' profile."
+  }
+  Write-Host "`nDone. Left in place: the built executables in $dist\ and any hub"
+  Write-Host "data in $env:LOCALAPPDATA\PocketTerminal\hub-data."
+}
+
+if ($Uninstall) {
+  Invoke-Uninstall
+  return
+}
+
+# --- Validate inputs and prerequisites -----------------------------------------
+# Mirrors the node-name rule pt itself enforces (pt/config.ts) — a conscious
+# one-line duplication, since PowerShell cannot import it: failing here beats
+# a launcher that dies at logon with the error visible only by hand-running it.
+if ($NodeName -notmatch '^[A-Za-z0-9_.-]{1,64}$') {
+  throw "Invalid -NodeName '$NodeName' (allowed: letters, digits, _ . - ; max 64 chars)"
+}
+if (-not $HubUrl) {
+  if (-not $InstallHub) { throw '-HubUrl is required (or pass -InstallHub to host the hub on this machine)' }
+  $HubUrl = "http://127.0.0.1:$HubPort"
+}
+if ($WebAccessPassword -and -not $InstallHub) {
+  throw '-WebAccessPassword configures the hub; it needs -InstallHub'
+}
+$null = (Get-Command bun -ErrorAction Stop).Source
+# Bun.spawn's `terminal` option (the pty every session runs in) needs 1.3.14.
+# Prerelease suffixes (1.3.16-canary.…) are not [version]-castable; strip them.
+$bunVersion = [version]((bun --version) -replace '[-+].*$', '')
+if ($bunVersion -lt [version]'1.3.14') {
+  throw "Bun $bunVersion is too old; pt needs >= 1.3.14 (bun upgrade)"
+}
+
+Write-Host "Repo:      $repo"
+Write-Host "Node name: $NodeName"
+Write-Host "Hub:       $HubUrl$(if ($InstallHub) { ' (installed here)' })"
+
+# The environment outranks Credential Manager by design (containers, dev
+# runs), so a password variable persisted user- or machine-wide would make
+# the hub and pt silently ignore what this install stores.
+$passwordVars = @('POCKETTERM_WORKSTATION_PASSWORD') + $(if ($InstallHub) { @('POCKETTERM_WEBACCESS_PASSWORD') } else { @() })
+foreach ($name in $passwordVars) {
+  foreach ($scope in 'User', 'Machine') {
+    if ([Environment]::GetEnvironmentVariable($name, $scope)) {
+      Write-Warning "$name is persisted ($scope scope) and overrides the password this install stores in Credential Manager — remove the variable."
+    }
+  }
 }
 
 # --- Build the executables (to staging names) ----------------------------------
@@ -267,32 +373,8 @@ Write-Host "Setting user environment variables..."
 [Environment]::SetEnvironmentVariable('POCKETTERM_HUB_URL',   $HubUrl,   'User')
 [Environment]::SetEnvironmentVariable('POCKETTERM_NODE_NAME', $NodeName, 'User')
 
-# Put dist\ on the user PATH so `pt` resolves everywhere. Split on ';' and
-# compare whole entries: -like would treat $dist as a wildcard and match it as
-# a substring of an unrelated entry, and concatenating onto an empty PATH would
-# prepend a stray separator. Read and write through the registry directly:
-# [Environment]::GetEnvironmentVariable expands %VAR% entries on read and
-# SetEnvironmentVariable writes plain REG_SZ, so a round-trip through them
-# would freeze every REG_EXPAND_SZ entry at its current expansion.
-$envKey = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Environment', $true)
-try {
-  $userPath = [string]$envKey.GetValue('Path', '', [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
-  $entries = @($userPath -split ';' | Where-Object { $_ -ne '' })
-  if ($entries -notcontains $dist) {
-    $kind = [Microsoft.Win32.RegistryValueKind]::ExpandString
-    if ($envKey.GetValueNames() -contains 'Path') { $kind = $envKey.GetValueKind('Path') }
-    $envKey.SetValue('Path', (($entries + $dist) -join ';'), $kind)
-    # A raw registry write skips the WM_SETTINGCHANGE broadcast that
-    # SetEnvironmentVariable would send; without it, shells opened before the
-    # next logon would never see the new PATH.
-    Add-Type -Namespace Win32 -Name Env -MemberDefinition '[DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)] public static extern IntPtr SendMessageTimeoutW(IntPtr hWnd, uint Msg, UIntPtr wParam, string lParam, uint fuFlags, uint uTimeout, out UIntPtr lpdwResult);'
-    [UIntPtr]$broadcastResult = [UIntPtr]::Zero
-    [void][Win32.Env]::SendMessageTimeoutW([IntPtr]0xffff, 0x1A, [UIntPtr]::Zero, 'Environment', 2, 5000, [ref]$broadcastResult)
-    Write-Host "Added $dist to user PATH (restart shells to pick up `pt`)."
-  }
-} finally {
-  $envKey.Close()
-}
+# Put dist\ on the user PATH so `pt` resolves everywhere.
+Edit-UserPath 'Add'
 
 # --- Register the launcher to run at logon (windowless) -----------------------
 # The launcher is the workstation's one resident process: it exists so
@@ -303,7 +385,6 @@ Register-HeadlessLogonTask $launcherTask "`"$dist\pt.exe`" launcher" 'PocketTerm
 # --- Install the Windows Terminal fragment ------------------------------------
 # Adds a "PocketTerminal" profile that opens a new hub-connected session
 # (it just runs `pt`).
-$fragDir = "$env:LOCALAPPDATA\Microsoft\Windows Terminal\Fragments\PocketTerminal"
 New-Item -ItemType Directory -Force -Path $fragDir | Out-Null
 # -Encoding UTF8 explicitly: the template holds an em-dash and an emoji icon,
 # and Windows PowerShell 5.1 reads ANSI by default, which would mangle both.
