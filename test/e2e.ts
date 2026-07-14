@@ -120,7 +120,7 @@ async function attachViewer(id: string) {
 // ------------------------------------------------------------------- hub
 dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pt-e2e-'));
 spawn('hub', ['server.ts'], {
-  PORT: String(PORT), HOST: '127.0.0.1', POCKETTERM_WEBACCESS_PASSWORD: PASS,
+  POCKETTERM_PORT: String(PORT), POCKETTERM_HOST: '127.0.0.1', POCKETTERM_WEBACCESS_PASSWORD: PASS,
   POCKETTERM_WORKSTATION_PASSWORD: NODE_PASS, POCKETTERM_DATA: dataDir,
 });
 await until('hub up', 10000, async () => (await fetch(BASE, { headers: { Authorization: AUTH } })).ok);

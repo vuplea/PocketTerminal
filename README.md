@@ -92,7 +92,7 @@ The hub reads the variables above, plus:
 
 | Variable          | Default            | Purpose                                   |
 | ----------------- | ------------------ | ----------------------------------------- |
-| `PORT` / `HOST`   | `8080` / `127.0.0.1` | Listen port / address. Loopback by default — the hub speaks plain HTTP, so set `HOST=0.0.0.0` only with TLS terminating in front |
+| `POCKETTERM_PORT` / `POCKETTERM_HOST` | `8080` / `127.0.0.1` | Listen port / address. Loopback by default — the hub speaks plain HTTP, so set `POCKETTERM_HOST=0.0.0.0` only with TLS terminating in front |
 | `POCKETTERM_DATA` | `./data`           | Where profiles and quick commands persist |
 
 The flags `--port N`, `--host ADDR`, and `--data DIR` override these.
@@ -185,7 +185,7 @@ and launchers, and holding it lets an attacker impersonate a workstation —
 make both long, random, and different. The hub itself speaks plain HTTP, and
 Basic auth resends the web-access password with every request, which is why
 TLS termination in front is mandatory.
-The standalone hub listens on loopback by default: open it with `HOST=0.0.0.0`, paired with
+The standalone hub listens on loopback by default: open it with `POCKETTERM_HOST=0.0.0.0`, paired with
 a TLS reverse proxy.
 
 Failed attempts trip a brute-force lockout keyed on client IP.

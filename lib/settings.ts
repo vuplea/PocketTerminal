@@ -4,9 +4,8 @@ import { promptHidden } from './secret';
 
 // Hub process settings: a small CLI and the two passwords. Flags exist
 // because a hub installed as a Windows background task (windows/install.ps1)
-// has no clean per-process environment channel — PORT and HOST are too
-// generic to persist user-wide — so the task passes them on the command
-// line; each flag overrides its environment variable.
+// has no per-process environment channel, so the task passes its settings on
+// the command line; each flag overrides its environment variable.
 
 export const isWindows = process.platform === 'win32';
 

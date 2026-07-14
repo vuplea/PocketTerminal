@@ -17,8 +17,6 @@ const DEFAULT_COMMANDS = [
 const DEFAULT_PROFILES: Profile[] = [
   { name: 'ClaudeTmp', cwd: '/tmp', command: 'claude' },
   { name: 'CodexTmp', cwd: '/tmp', command: 'codex' },
-  { name: 'ClaudeTmp Yolo', cwd: '/tmp', command: 'claude --dangerously-skip-permissions' },
-  { name: 'CodexTmp Yolo', cwd: '/tmp', command: 'codex --yolo' },
 ];
 
 export interface Profile {

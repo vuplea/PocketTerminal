@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
   Install PocketTerminal on this Windows workstation: build the native
@@ -192,8 +192,8 @@ if ($InstallHub) {
   # Profiles and quick commands persist here (the compose deployment's
   # hub-data volume, as a directory). A scheduled task has no per-process
   # environment channel, so the settings ride the command line — including
-  # --host, so a stray user-level HOST variable can never flip this headless
-  # plain-HTTP hub onto the network.
+  # --host, so a stray user-level POCKETTERM_HOST variable can never flip
+  # this headless plain-HTTP hub onto the network.
   $hubData = "$env:LOCALAPPDATA\PocketTerminal\hub-data"
   New-Item -ItemType Directory -Force -Path $hubData | Out-Null
   $hubCommand = "`"$dist\hub.exe`" --host 127.0.0.1 --port $HubPort --data `"$hubData`""

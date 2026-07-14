@@ -51,13 +51,13 @@ try {
   process.exit(1);
 }
 
-const PORT = cli.port ?? (Number(process.env.PORT) || 8080);
+const PORT = cli.port ?? (Number(process.env.POCKETTERM_PORT) || 8080);
 // Loopback by default: the hub speaks plain HTTP and Basic auth resends the
 // password with every request, so a reachable-from-the-network listener is an
-// explicit decision (--host / HOST=0.0.0.0) to pair with TLS in front. The
-// hub container sets it (Dockerfile.hub) and publishes the port
+// explicit decision (--host / POCKETTERM_HOST=0.0.0.0) to pair with TLS in
+// front. The hub container sets it (Dockerfile.hub) and publishes the port
 // loopback-bound instead (docker-compose.yml).
-const HOST = cli.host || process.env.HOST || '127.0.0.1';
+const HOST = cli.host || process.env.POCKETTERM_HOST || '127.0.0.1';
 const DATA_DIR = cli.data || process.env.POCKETTERM_DATA || path.join(process.cwd(), 'data');
 const TRUST_PROXY = ['1', 'true'].includes(process.env.POCKETTERM_TRUST_PROXY ?? '');
 
@@ -470,5 +470,5 @@ console.log(`PocketTerminal hub listening on http://${HOST}:${PORT} (data: ${pat
 if (!['127.0.0.1', '::1', 'localhost'].includes(HOST)) {
   console.warn('hub: listening on a non-loopback address over plain HTTP — every request'
     + ' carries the password, so TLS must terminate in front (reverse proxy or VPN);'
-    + ' set HOST=127.0.0.1 if a local proxy is the only way in');
+    + ' set POCKETTERM_HOST=127.0.0.1 if a local proxy is the only way in');
 }
