@@ -102,7 +102,10 @@ function New-StagedExecutable([string]$EntryPoint, [string]$Name) {
 # by hand has no task at all.
 function Install-StagedExecutable([string]$Name, [string]$TaskName, [string]$StopNote) {
   Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
-  $running = @(Get-Process $Name -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq "$dist\$Name.exe" })
+  # Match our own build by Bun's PE company field ("Oven").
+  # Best effort — this would also stop an unrelated Bun exe that happened to be
+  # named $Name.exe, a trade accepted to reliably retire our own stragglers.
+  $running = @(Get-Process $Name -ErrorAction SilentlyContinue | Where-Object { $_.Company -eq 'Oven' })
   if ($running) {
     Write-Host "Stopping running $Name processes$StopNote..."
     $running | Stop-Process -Force
