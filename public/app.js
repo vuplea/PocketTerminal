@@ -378,11 +378,13 @@ function installTouchLayer() {
   // an app consumes — mouse-tracking wheel reports, alternate-screen arrow
   // translation — counts events, not magnitude, so pixel deltas there would
   // scroll a tick per touchmove (wild acceleration); those get one unit
-  // event per matching stretch of finger travel instead. Both run about
-  // twice the finger's travel: exact 1:1 reads as sluggish with no inertia
-  // to carry the motion, and there is none either way.
-  const DRAG_SPEED = 2; // viewport px scrolled per px of finger travel
-  const DRAG_ROWS_PER_TICK = 1.25; // finger travel, in row-heights, per wheel tick sent to an app
+  // event per matching stretch of finger travel instead. The viewport runs
+  // well past the finger's travel: with no inertia to carry the motion,
+  // speed stands in for it when combing through scrollback. App ticks stay
+  // closer to the finger's pace — apps respond to the event rate, and a
+  // rate much above the finger reads as acceleration, not speed.
+  const DRAG_SPEED = 2.6; // viewport px scrolled per px of finger travel
+  const DRAG_ROWS_PER_TICK = 1.8; // finger travel, in row-heights, per wheel tick sent to an app
   const wheel = (deltaY, deltaMode, touch) => layer.dispatchEvent(new WheelEvent('wheel', {
     bubbles: true,
     cancelable: true,
