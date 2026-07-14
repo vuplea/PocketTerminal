@@ -71,6 +71,18 @@ Write-Host "Repo:      $repo"
 Write-Host "Node name: $NodeName"
 Write-Host "Hub:       $HubUrl$(if ($InstallHub) { ' (installed here)' })"
 
+# The environment outranks Credential Manager by design (containers, dev
+# runs), so a password variable persisted user- or machine-wide would make
+# the hub and pt silently ignore what this install stores.
+$passwordVars = @('POCKETTERM_WORKSTATION_PASSWORD') + $(if ($InstallHub) { @('POCKETTERM_WEBACCESS_PASSWORD') } else { @() })
+foreach ($name in $passwordVars) {
+  foreach ($scope in 'User', 'Machine') {
+    if ([Environment]::GetEnvironmentVariable($name, $scope)) {
+      Write-Warning "$name is persisted ($scope scope) and overrides the password this install stores in Credential Manager — remove the variable."
+    }
+  }
+}
+
 # --- Helpers -------------------------------------------------------------------
 
 # Compile one self-contained executable to its staging name ($Name-new.exe).
@@ -190,15 +202,27 @@ if ($InstallHub) {
   Start-ScheduledTask -TaskName $hubTask
   # The task runs the hub headless, so a startup error would die invisibly;
   # prove it answers HTTP before the workstation half depends on it. Any
-  # status counts — an unauthenticated request earns a 401 from a healthy hub.
+  # status counts — an unauthenticated request earns a 401 from a healthy
+  # hub. The HTTP answer alone is not proof, though: with the port already
+  # taken, the hub dies at bind time while the other service answers the
+  # probe — so the hub process must also hold, like the launcher check below.
   $deadline = (Get-Date).AddSeconds(15)
   $hubUp = $false
   while ((Get-Date) -lt $deadline) {
+    $answered = $false
     try {
       Invoke-WebRequest -Uri "http://127.0.0.1:$HubPort/" -UseBasicParsing -TimeoutSec 2 | Out-Null
-      $hubUp = $true; break
+      $answered = $true
     } catch {
-      if ($_.Exception.Response) { $hubUp = $true; break }
+      if ($_.Exception.Response) { $answered = $true }
+    }
+    if ($answered) {
+      Start-Sleep -Seconds 2   # a bind failure kills the hub within moments
+      if (@(Get-Process hub -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq "$dist\hub.exe" }).Count -gt 0) {
+        $hubUp = $true; break
+      }
+      throw ("Port $HubPort answers but $dist\hub.exe is not running — another service likely holds the port " +
+        "(pick a different -HubPort), or the hub crashed at startup. Run $hubCommand in a terminal to see the error.")
     }
     Start-Sleep -Milliseconds 500
   }
@@ -211,32 +235,34 @@ if ($InstallHub) {
     "remove it with: Unregister-ScheduledTask '$hubTask' -Confirm:`$false")
 }
 
+# --- Store the workstation password ---------------------------------------------
+# It goes to Windows Credential Manager instead of a user environment
+# variable, which would sit in the registry and be inherited by every process
+# in the session. set-password verifies it against the hub before storing,
+# and runs through the staged binary — a mistyped password fails right here,
+# before the launcher or any session has been touched. The user env var
+# persisted below is not part of this process's environment yet, so hand the
+# URL over explicitly.
+Write-Host "`nStoring the workstation password in Credential Manager..."
+$env:POCKETTERM_HUB_URL = $HubUrl
+if ($Password -or $InstallHub) {
+  # With -InstallHub the password was already prompted for above (an empty
+  # entry pipes through as "keep the stored one") — never ask twice.
+  Invoke-Utf8Pipe @($Password) "$dist\pt-new.exe" @('set-password')
+} else {
+  # No -Password given: let pt prompt for it hidden.
+  & "$dist\pt-new.exe" set-password
+}
+if ($LASTEXITCODE -ne 0) { throw "Failed to store the password; see output above." }
+
 Install-StagedExecutable 'pt' $launcherTask ' (open sessions end with them)'
 
 # --- Persist configuration ------------------------------------------------------
 # Non-secret settings go to user environment variables; the scheduled tasks and
 # any shell you open inherit them.
-Write-Host "`nSetting user environment variables..."
+Write-Host "Setting user environment variables..."
 [Environment]::SetEnvironmentVariable('POCKETTERM_HUB_URL',   $HubUrl,   'User')
 [Environment]::SetEnvironmentVariable('POCKETTERM_NODE_NAME', $NodeName, 'User')
-
-# The password goes to Windows Credential Manager instead of a user environment
-# variable, which would sit in the registry and be inherited by every process
-# in the session. set-password verifies it against the hub before storing — a
-# mistyped password fails right here instead of leaving a launcher that
-# silently redials forever. The user env var persisted above is not part of
-# this process's environment yet, so hand the URL over explicitly.
-Write-Host "Storing the workstation password in Credential Manager..."
-$env:POCKETTERM_HUB_URL = $HubUrl
-if ($Password -or $InstallHub) {
-  # With -InstallHub the password was already prompted for above (an empty
-  # entry pipes through as "keep the stored one") — never ask twice.
-  Invoke-Utf8Pipe @($Password) "$dist\pt.exe" @('set-password')
-} else {
-  # No -Password given: let pt prompt for it hidden.
-  & "$dist\pt.exe" set-password
-}
-if ($LASTEXITCODE -ne 0) { throw "Failed to store the password; see output above." }
 
 # Put dist\ on the user PATH so `pt` resolves everywhere. Split on ';' and
 # compare whole entries: -like would treat $dist as a wildcard and match it as

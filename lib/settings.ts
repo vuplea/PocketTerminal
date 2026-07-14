@@ -117,7 +117,10 @@ export async function setHubPasswords(): Promise<void> {
   }
   const interactive = process.stdin.isTTY === true;
   const lines = interactive ? [] : (await Bun.stdin.text()).split(/\r?\n/);
-  let changed = false;
+  // Gather and validate both entries before writing either: a bad or
+  // cancelled second entry must not exit with the first credential already
+  // rotated.
+  const entries: { cred: (typeof HUB_PASSWORDS)[number]; value: string | null }[] = [];
   for (const [i, cred] of HUB_PASSWORDS.entries()) {
     const stored = readCredential(cred.target) !== null;
     const entered = interactive
@@ -125,19 +128,25 @@ export async function setHubPasswords(): Promise<void> {
       : lines[i] ?? '';
     if (entered.length === 0) {
       if (!stored) throw new CliError(`no ${cred.label} password given and none stored`);
-      console.log(`Kept the stored ${cred.label} password.`);
+      entries.push({ cred, value: null });
       continue;
     }
     const problem = passwordProblem(entered);
     if (problem) throw new CliError(`the ${cred.label} password ${problem}`);
-    writeCredential(cred.target, entered);
-    changed = true;
+    entries.push({ cred, value: entered });
+  }
+  for (const { cred, value } of entries) {
+    if (value === null) {
+      console.log(`Kept the stored ${cred.label} password.`);
+      continue;
+    }
+    writeCredential(cred.target, value);
     console.log(`Stored the ${cred.label} password in Credential Manager (generic credential "${cred.target}").`);
   }
   // The hub hashes its passwords at startup (lib/auth.ts), so a rotation
   // reaches an already-running hub only at its next restart. The installer
   // pipes (non-interactive) and restarts the task itself right after.
-  if (interactive && changed) {
+  if (interactive && entries.some((e) => e.value !== null)) {
     console.log('An already-running hub picks the change up at its next restart.');
   }
 }
