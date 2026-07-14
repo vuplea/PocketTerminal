@@ -95,6 +95,15 @@ The hub reads the variables above, plus:
 | `PORT` / `HOST`   | `8080` / `127.0.0.1` | Listen port / address. Loopback by default — the hub speaks plain HTTP, so set `HOST=0.0.0.0` only with TLS terminating in front |
 | `POCKETTERM_DATA` | `./data`           | Where profiles and quick commands persist |
 
+The flags `--port N`, `--host ADDR`, and `--data DIR` override these.
+
+On Windows, `.\windows\install.ps1 -InstallHub` (see workstation setup below)
+hosts the hub as a background logon task instead: a self-contained
+`windows\dist\hub.exe` serving loopback on 8080 (`-HubPort`), both passwords
+in **Windows Credential Manager** (`hub.exe set-password`), data in
+`%LOCALAPPDATA%\PocketTerminal\hub-data`; the workstation half of the install
+then defaults to this local hub.
+
 ### If using Tailscale, keep the hub private
 
 You can publish it to your tailnet with `tailscale serve`, which adds TLS:

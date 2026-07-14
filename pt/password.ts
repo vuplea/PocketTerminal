@@ -1,24 +1,34 @@
+import { readCredential, writeCredential } from '../lib/credential';
 import { SESSION_PROTOCOL } from '../lib/protocol';
-import { CliError, env, isWindows, readSecretFromStdin } from './config';
-import { CREDENTIAL_TARGET, writeCredential } from './credential';
+import { promptHidden, readSecretFromStdin } from '../lib/secret';
+import { CliError, CREDENTIAL_TARGET, env, isWindows } from './config';
 import { normalizeHubUrl, warnIfCleartext } from './link';
 
 // `pt set-password` — store the workstation password in Windows Credential
 // Manager, where hosts and the launcher read it from, instead of an
-// environment variable. Piped input (the installer) or a hidden prompt. The
-// password is proved against the configured hub before it is stored: a wrong
-// one written here would leave the launcher silently redialing forever.
+// environment variable. Piped input (the installer) or a hidden prompt; an
+// empty entry keeps the already-stored credential. The password is proved
+// against the configured hub before it is stored: a wrong one written here
+// would leave the launcher silently redialing forever.
 
 export async function setPassword(): Promise<void> {
   if (!isWindows) {
     throw new CliError('set-password uses Windows Credential Manager; on this platform set POCKETTERM_WORKSTATION_PASSWORD instead');
   }
-  const password = process.stdin.isTTY
-    ? await promptHidden('Workstation password: ')
+  const stored = readCredential(CREDENTIAL_TARGET);
+  const entered = process.stdin.isTTY
+    ? await promptHidden(`Workstation password${stored !== null ? ' (Enter keeps the stored one)' : ''}: `)
     : await readSecretFromStdin();
-  if (password.length === 0) throw new CliError('no password given');
+  if (entered.length === 0 && stored === null) throw new CliError('no password given');
+  // Keeping the stored password still verifies it, so a re-run proves the
+  // hub link either way.
+  const password = entered.length > 0 ? entered : stored!;
   await verifyPassword(password);
-  writeCredential(password);
+  if (entered.length === 0) {
+    console.log('Kept the stored workstation password.');
+    return;
+  }
+  writeCredential(CREDENTIAL_TARGET, password);
   console.log(`Stored the workstation password in Credential Manager (generic credential "${CREDENTIAL_TARGET}").`);
 }
 
@@ -63,52 +73,3 @@ function verifyPassword(password: string): Promise<void> {
   });
 }
 
-// Bytes are scanned for the control keys (safe: UTF-8 continuation bytes are
-// all >= 0x80, so they can never look like one) while the text between them
-// goes through a streaming decoder — building the string byte-by-byte would
-// turn a multi-byte password like "pässword" into mojibake that then fails
-// hub auth despite being typed correctly.
-function promptHidden(prompt: string): Promise<string> {
-  process.stdout.write(prompt);
-  process.stdin.setRawMode(true);
-  process.stdin.resume();
-  return new Promise((resolve, reject) => {
-    let buffer = '';
-    const decoder = new TextDecoder();
-    const finish = () => {
-      process.stdin.off('data', onData);
-      process.stdin.setRawMode(false);
-      process.stdin.pause();
-      process.stdout.write('\n');
-    };
-    const onData = (chunk: Buffer) => {
-      let start = 0;
-      const takeText = (end: number) => {
-        if (end > start) buffer += decoder.decode(chunk.subarray(start, end), { stream: true });
-        start = end + 1;
-      };
-      for (let i = 0; i < chunk.length; i++) {
-        const byte = chunk[i]!;
-        if (byte === 0x0d || byte === 0x0a) { // Enter
-          takeText(i);
-          finish();
-          resolve(buffer);
-          return;
-        }
-        if (byte === 0x03) { // Ctrl-C: raw mode swallows the signal, so honor it here
-          finish();
-          reject(new CliError('cancelled'));
-          return;
-        }
-        if (byte === 0x08 || byte === 0x7f) { // Backspace: drop one code point
-          takeText(i);
-          buffer = [...buffer].slice(0, -1).join('');
-        } else if (byte < 0x20) { // other control keys: ignore
-          takeText(i);
-        }
-      }
-      takeText(chunk.length);
-    };
-    process.stdin.on('data', onData);
-  });
-}

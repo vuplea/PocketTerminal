@@ -2,13 +2,22 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+import { CliError } from '../lib/errors';
 import { NODE_NAME_RE } from '../lib/protocol';
 
 // Configuration shared by the pt commands, read from the environment (the
 // Windows installer persists these as user variables; the compose file passes
 // them to the `server` workstation container).
 
+// Re-exported so pt code keeps one import site for its user-facing error.
+export { CliError };
+
 export const isWindows = process.platform === 'win32';
+
+// The workstation password's home on Windows: a generic credential in the
+// user's Credential Manager (lib/credential.ts), written by `pt set-password`
+// and read back by every session host and the launcher.
+export const CREDENTIAL_TARGET = 'PocketTerminal';
 
 export const env = {
   get hubUrl(): string { return process.env.POCKETTERM_HUB_URL ?? ''; },
@@ -62,12 +71,3 @@ export function resolveExistingDir(dir: string): string {
   return resolved;
 }
 
-// Read a secret piped on stdin (the launcher's pipe to a headless host, the
-// entrypoint's heredoc). Strips only the single trailing newline the pipe
-// adds — nothing else, since every other byte of the password is significant.
-export async function readSecretFromStdin(): Promise<string> {
-  return (await Bun.stdin.text()).replace(/[\r\n]+$/, '');
-}
-
-// An error meant for the user, printed without a stack trace.
-export class CliError extends Error {}

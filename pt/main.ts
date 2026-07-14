@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 
-import { CliError, env, isWindows, readSecretFromStdin, resolveNodeName } from './config';
-import { readCredential } from './credential';
+import { readCredential } from '../lib/credential';
+import { readSecretFromStdin } from '../lib/secret';
+import { CliError, CREDENTIAL_TARGET, env, isWindows, resolveNodeName } from './config';
 import { runHost, type HostContext, type HostSpec } from './host';
 import { runLauncher } from './launcher';
 import { normalizeHubUrl, warnIfCleartext } from './link';
@@ -48,7 +49,7 @@ async function resolvePassword(): Promise<string> {
     }
   }
   if (password.length === 0 && isWindows) {
-    password = readCredential() ?? '';
+    password = readCredential(CREDENTIAL_TARGET) ?? '';
   }
   return password;
 }

@@ -1,4 +1,4 @@
-import { utf16z } from './credential';
+import { utf16z } from '../lib/credential';
 
 // Opens a session host in a new terminal window, for sessions created from
 // the hub — via ShellExecuteW, so Windows hands it to the user's default

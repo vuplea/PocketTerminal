@@ -3,8 +3,25 @@ import path from 'node:path';
 import { Auth } from './lib/auth';
 import { Store } from './lib/store';
 import { Directory, type PtSocket, type WsData } from './lib/directory';
-import { ClientError } from './lib/errors';
+import { ClientError, CliError } from './lib/errors';
 import { BROWSER_PROTOCOL, LAUNCHER_PROTOCOL, MAX_FIELD_CHARS, NODE_NAME_RE, SESSION_PROTOCOL, parse, send } from './lib/protocol';
+import { HUB_USAGE, parseHubCli, resolveHubPasswords, setHubPasswords } from './lib/settings';
+
+// Static assets, imported as files: under `bun server.ts` each import is a
+// path on disk; under `bun build --compile` the file is embedded, so the hub
+// binary is self-contained (the Windows service and the container both run
+// that binary).
+// bun-types types '*.html' imports as HTMLBundle (Bun's HTML bundling), but
+// with { type: 'file' } this import is a path string like the others.
+import indexHtmlBundle from './public/index.html' with { type: 'file' };
+const indexHtml = indexHtmlBundle as unknown as string;
+import appJs from './public/app.js' with { type: 'file' };
+import styleCss from './public/style.css' with { type: 'file' };
+import xtermJs from '@xterm/xterm/lib/xterm.js' with { type: 'file' };
+import xtermJsMap from '@xterm/xterm/lib/xterm.js.map' with { type: 'file' };
+import xtermCss from '@xterm/xterm/css/xterm.css' with { type: 'file' };
+import addonFitJs from '@xterm/addon-fit/lib/addon-fit.js' with { type: 'file' };
+import addonFitJsMap from '@xterm/addon-fit/lib/addon-fit.js.map' with { type: 'file' };
 
 // The hub. It serves the browser UI, authenticates clients, and brokers
 // between browser sockets and the terminal workstations registered with it.
@@ -14,58 +31,60 @@ import { BROWSER_PROTOCOL, LAUNCHER_PROTOCOL, MAX_FIELD_CHARS, NODE_NAME_RE, SES
 // here — including the `server` workstation container deployed beside the
 // hub (see docker-compose.yml).
 
-const PORT = Number(process.env.PORT) || 8080;
+// The CLI: `set-password` stores the two passwords in Windows Credential
+// Manager, flags override the environment (see lib/settings.ts).
+const cliArgs = process.argv.slice(2);
+let cli;
+try {
+  if (cliArgs[0] === '-h' || cliArgs[0] === '--help') {
+    console.log(HUB_USAGE);
+    process.exit(0);
+  }
+  if (cliArgs[0] === 'set-password') {
+    await setHubPasswords();
+    process.exit(0);
+  }
+  cli = parseHubCli(cliArgs);
+} catch (err) {
+  if (!(err instanceof CliError)) throw err;
+  console.error(err.message);
+  process.exit(1);
+}
+
+const PORT = cli.port ?? (Number(process.env.PORT) || 8080);
 // Loopback by default: the hub speaks plain HTTP and Basic auth resends the
 // password with every request, so a reachable-from-the-network listener is an
-// explicit decision (HOST=0.0.0.0) to pair with TLS in front. The hub
-// container sets it (Dockerfile.hub) and publishes the port loopback-bound
-// instead (docker-compose.yml).
-const HOST = process.env.HOST || '127.0.0.1';
+// explicit decision (--host / HOST=0.0.0.0) to pair with TLS in front. The
+// hub container sets it (Dockerfile.hub) and publishes the port
+// loopback-bound instead (docker-compose.yml).
+const HOST = cli.host || process.env.HOST || '127.0.0.1';
+const DATA_DIR = cli.data || process.env.POCKETTERM_DATA || path.join(process.cwd(), 'data');
+const TRUST_PROXY = ['1', 'true'].includes(process.env.POCKETTERM_TRUST_PROXY ?? '');
+
 // The two secrets: browsers present the web-access password via Basic auth
 // (username "pocketterm"); workstation session and launcher sockets present
 // the workstation password. See lib/auth.ts.
-const WEBACCESS_PASSWORD = process.env.POCKETTERM_WEBACCESS_PASSWORD;
-const WORKSTATION_PASSWORD = process.env.POCKETTERM_WORKSTATION_PASSWORD;
-const DATA_DIR = process.env.POCKETTERM_DATA || path.join(import.meta.dir, 'data');
-const TRUST_PROXY = ['1', 'true'].includes(process.env.POCKETTERM_TRUST_PROXY ?? '');
-
-for (const [name, value] of [
-  ['POCKETTERM_WEBACCESS_PASSWORD', WEBACCESS_PASSWORD],
-  ['POCKETTERM_WORKSTATION_PASSWORD', WORKSTATION_PASSWORD],
-] as const) {
-  if (!value) {
-    console.error(`Missing required environment variable: ${name}`);
-    process.exit(1);
-  }
-  // The placeholder is public knowledge (it ships in .env.example); a hub
-  // guarded by it is a hub guarded by nothing.
-  if (value === 'change-me-long-random') {
-    console.error(`${name} is still the .env.example placeholder — set a real password`);
-    process.exit(1);
-  }
-  // Each password gates a shell on every workstation; a short one falls to
-  // online guessing despite the lockout.
-  if (value.length < 16) {
-    console.error(`${name} is too short — use at least 16 characters, long and random`);
-    process.exit(1);
-  }
+const passwords = resolveHubPasswords();
+if (passwords.problems.length > 0) {
+  for (const problem of passwords.problems) console.error(problem);
+  process.exit(1);
 }
 
-const auth = new Auth(WEBACCESS_PASSWORD!, WORKSTATION_PASSWORD!);
+const auth = new Auth(passwords.webaccess, passwords.workstation);
 const store = new Store(DATA_DIR);
 const directory = new Directory();
 
 // ---------------------------------------------------------------- static
 
 const STATIC_FILES: Record<string, [string, string]> = {
-  '/': ['public/index.html', 'text/html; charset=utf-8'],
-  '/app.js': ['public/app.js', 'text/javascript; charset=utf-8'],
-  '/style.css': ['public/style.css', 'text/css; charset=utf-8'],
-  '/vendor/xterm.js': ['node_modules/@xterm/xterm/lib/xterm.js', 'text/javascript'],
-  '/vendor/xterm.js.map': ['node_modules/@xterm/xterm/lib/xterm.js.map', 'application/json'],
-  '/vendor/xterm.css': ['node_modules/@xterm/xterm/css/xterm.css', 'text/css'],
-  '/vendor/addon-fit.js': ['node_modules/@xterm/addon-fit/lib/addon-fit.js', 'text/javascript'],
-  '/vendor/addon-fit.js.map': ['node_modules/@xterm/addon-fit/lib/addon-fit.js.map', 'application/json'],
+  '/': [indexHtml, 'text/html; charset=utf-8'],
+  '/app.js': [appJs, 'text/javascript; charset=utf-8'],
+  '/style.css': [styleCss, 'text/css; charset=utf-8'],
+  '/vendor/xterm.js': [xtermJs, 'text/javascript'],
+  '/vendor/xterm.js.map': [xtermJsMap, 'application/json'],
+  '/vendor/xterm.css': [xtermCss, 'text/css'],
+  '/vendor/addon-fit.js': [addonFitJs, 'text/javascript'],
+  '/vendor/addon-fit.js.map': [addonFitJsMap, 'application/json'],
 };
 
 // Applied to every HTTP response. style-src 'unsafe-inline' for xterm.js (its
@@ -329,7 +348,7 @@ const server = Bun.serve<WsData>({
       const [file, type] = entry;
       const headers = { 'Content-Type': type, 'Cache-Control': 'no-cache' };
       if (req.method === 'HEAD') return respond(200, null, headers);
-      const blob = Bun.file(path.join(import.meta.dir, file));
+      const blob = Bun.file(file);
       if (!(await blob.exists())) {
         console.error(`static: ${file}: not found`);
         return respond(500, 'Failed to read file.', { 'Content-Type': 'text/plain' });
@@ -441,7 +460,7 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   });
 }
 
-console.log(`PocketTerminal hub listening on http://${HOST}:${PORT}`);
+console.log(`PocketTerminal hub listening on http://${HOST}:${PORT} (data: ${path.resolve(DATA_DIR)})`);
 
 // The hub itself speaks plain HTTP, and Basic auth resends the password with
 // every request — so a non-loopback listener is only safe with TLS

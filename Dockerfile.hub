@@ -1,11 +1,10 @@
 # The hub image (compose service `hub`, docker-compose.yml): the Bun
-# aggregator (server.ts), nothing else. It hosts no terminals, so it carries
-# no toolchain. Runs as the unprivileged user "user" (uid 1000). The
-# workstation image is its own build (Dockerfile.workstation).
-FROM oven/bun:1.3-slim
-
-# Run unprivileged: rename the image's stock uid-1000 user.
-RUN usermod -l user -d /home/user -m bun && groupmod -n user bun
+# aggregator (server.ts) compiled into the same self-contained binary the
+# Windows installer builds (static assets embedded), nothing else. It hosts
+# no terminals, so it carries no toolchain. Runs as the unprivileged user
+# "user" (uid 1000). The workstation image is its own build
+# (Dockerfile.workstation).
+FROM oven/bun:1.3-slim AS build
 
 WORKDIR /app
 COPY package.json bun.lock ./
@@ -13,6 +12,17 @@ RUN bun install --frozen-lockfile --production
 COPY server.ts ./
 COPY lib ./lib
 COPY public ./public
+RUN bun build --compile server.ts --outfile hub
+
+# The runtime stage keeps the bun base (the compose healthcheck probes with
+# `bun -e`) but only the compiled binary from the build.
+FROM oven/bun:1.3-slim
+
+# Run unprivileged: rename the image's stock uid-1000 user.
+RUN usermod -l user -d /home/user -m bun && groupmod -n user bun
+
+WORKDIR /app
+COPY --from=build /app/hub ./hub
 
 # Profiles and quick commands persist on a small dedicated volume. HOST must
 # override the server's loopback default here: the container is only reachable
@@ -24,4 +34,4 @@ RUN mkdir /data && chown user:user /data
 
 USER user
 EXPOSE 8080
-CMD ["bun", "server.ts"]
+CMD ["./hub"]
