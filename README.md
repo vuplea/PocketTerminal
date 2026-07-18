@@ -1,6 +1,4 @@
-<h1 align="center">
-  <img src="docs/icon.png" height="80" align="middle" alt="PromptPortal icon">&nbsp; PromptPortal
-</h1>
+# <img src="docs/icon.png" height="80" align="absmiddle" alt="PromptPortal icon">&nbsp; PromptPortal
 
 Spawn a terminal window from your phone running on your PC; work remotely.
 Open any terminal window from your PC; pick it up from your phone.
