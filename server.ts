@@ -17,6 +17,12 @@ import indexHtmlBundle from './public/index.html' with { type: 'file' };
 const indexHtml = indexHtmlBundle as unknown as string;
 import appJs from './public/app.js' with { type: 'file' };
 import styleCss from './public/style.css' with { type: 'file' };
+// PWA assets: the manifest makes the phone install PromptPortal to the home
+// screen, and its icon + background_color (#16161e) drive the launch splash.
+import manifestFile from './public/manifest.webmanifest' with { type: 'file' };
+import icon192 from './public/icon-192.png' with { type: 'file' };
+import icon512 from './public/icon-512.png' with { type: 'file' };
+import splashPng from './public/splash.png' with { type: 'file' };
 import xtermJs from '@xterm/xterm/lib/xterm.js' with { type: 'file' };
 import xtermJsMap from '@xterm/xterm/lib/xterm.js.map' with { type: 'file' };
 import xtermCss from '@xterm/xterm/css/xterm.css' with { type: 'file' };
@@ -80,6 +86,10 @@ const STATIC_FILES: Record<string, [string, string]> = {
   '/': [indexHtml, 'text/html; charset=utf-8'],
   '/app.js': [appJs, 'text/javascript; charset=utf-8'],
   '/style.css': [styleCss, 'text/css; charset=utf-8'],
+  '/manifest.webmanifest': [manifestFile, 'application/manifest+json; charset=utf-8'],
+  '/icon-192.png': [icon192, 'image/png'],
+  '/icon-512.png': [icon512, 'image/png'],
+  '/splash.png': [splashPng, 'image/png'],
   '/vendor/xterm.js': [xtermJs, 'text/javascript'],
   '/vendor/xterm.js.map': [xtermJsMap, 'application/json'],
   '/vendor/xterm.css': [xtermCss, 'text/css'],
